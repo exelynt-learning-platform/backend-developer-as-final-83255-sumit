@@ -1,28 +1,28 @@
 package com.exelynt.resource_booking.dto;
 
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotNull;
+import com.exelynt.resource_booking.entity.ReservationStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class ReservationRequest {
-    @NotNull(message = "Resource ID is required")
+public class ReservationResponse {
+    private Long id;
     private Long resourceId;
-
-    @NotNull(message = "Start time is required")
+    private Long userId;
     private LocalDateTime startTime;
-
-    @NotNull(message = "End time is required")
     private LocalDateTime endTime;
-
-    @NotNull(message = "Price is required")
-    @DecimalMin(value = "0.00", inclusive = true, message = "Price must be non-negative")
     private BigDecimal price;
+    private ReservationStatus status;
 
-    public ReservationRequest() {}
+    public ReservationResponse() {}
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
     public Long getResourceId() { return resourceId; }
     public void setResourceId(Long resourceId) { this.resourceId = resourceId; }
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public LocalDateTime getStartTime() { return startTime; }
     public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
@@ -32,4 +32,7 @@ public class ReservationRequest {
 
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
+
+    public ReservationStatus getStatus() { return status; }
+    public void setStatus(ReservationStatus status) { this.status = status; }
 }

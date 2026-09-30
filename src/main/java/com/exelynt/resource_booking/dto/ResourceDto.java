@@ -1,30 +1,19 @@
-package com.exelynt.resource_booking.entity;
+package com.exelynt.resource_booking.dto;
 
-import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
 
-@Entity
-@Table(name = "resources")
-public class Resource {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+public class ResourceDto {
     private Long id;
 
-    @Column(nullable = false)
+    @NotBlank(message = "Resource name is required")
     private String name;
 
     private String description;
 
-    @Column(nullable = false)
+    @NotBlank(message = "Resource type is required")
     private String type;
 
-    public Resource() {}
-
-    public Resource(String name, String description, String type) {
-        this.name = name;
-        this.description = description;
-        this.type = type;
-    }
+    public ResourceDto() {}
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

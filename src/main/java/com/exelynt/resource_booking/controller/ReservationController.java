@@ -1,84 +1,47 @@
 package com.exelynt.resource_booking.controller;
 
 import com.exelynt.resource_booking.dto.ReservationRequest;
-import com.exelynt.resource_booking.entity.*;
-import com.exelynt.resource_booking.repository.*;
-import jakarta.persistence.criteria.Predicate;
+import com.exelynt.resource_booking.dto.ReservationResponse;
+import com.exelynt.resource_booking.entity.ReservationStatus;
+import com.exelynt.resource_booking.service.ReservationService;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.*;
-import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
 
 @RestController
-@RequestMapping("/api/reservations")
+@RequestMapping("/reservations")
 public class ReservationController {
 
-    private final ReservationRepository reservationRepository;
-    private final ResourceRepository resourceRepository;
+    private final ReservationService reservationService;
 
-    public ReservationController(ReservationRepository reservationRepository, ResourceRepository resourceRepository) {
-        this.reservationRepository = reservationRepository;
-        this.resourceRepository = resourceRepository;
+    public ReservationController(ReservationService reservationService) {
+        this.reservationService = reservationService;
     }
 
     @PostMapping
-    public ResponseEntity<?> createReservation(@Valid @RequestBody ReservationRequest request, @AuthenticationPrincipal User currentUser) {
-        Resource resource = resourceRepository.findById(request.getResourceId())
-                .orElseThrow(() -> new RuntimeException("Resource not found"));
-
-        if (!resource.isAvailable()) {
-            return ResponseEntity.badRequest().body("Resource is not available");
-        }
-
-        Reservation reservation = new Reservation(
-                currentUser,
-                resource,
-                request.getStartTime(),
-                request.getEndTime(),
-                request.getPrice(),
-                ReservationStatus.PENDING
-        );
-
-        return ResponseEntity.ok(reservationRepository.save(reservation));
+    public ResponseEntity<ReservationResponse> createReservation(@Valid @RequestBody ReservationRequest request) {
+        return new ResponseEntity<>(reservationService.createReservation(request), HttpStatus.CREATED);
     }
 
     @GetMapping
-    public ResponseEntity<Page<Reservation>> getReservations(
+    public ResponseEntity<Page<ReservationResponse>> getReservations(
             @RequestParam(required = false) ReservationStatus status,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "id") String sortBy,
-            @AuthenticationPrincipal User currentUser) {
+            @RequestParam(defaultValue = "id,asc") String[] sort) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by(sortBy));
+        Sort.Direction direction = sort[1].equalsIgnoreCase("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sort[0]));
 
-        Specification<Reservation> spec = (root, query, cb) -> {
-            List<Predicate> predicates = new ArrayList<>();
-
-            if (currentUser.getRole() == Role.ROLE_USER) {
-                predicates.add(cb.equal(root.get("user").get("id"), currentUser.getId()));
-            }
-            if (status != null) {
-                predicates.add(cb.equal(root.get("status"), status));
-            }
-            if (minPrice != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("price"), minPrice));
-            }
-            if (maxPrice != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("price"), maxPrice));
-            }
-
-            return cb.and(predicates.toArray(new Predicate[0]));
-        };
-
-        return ResponseEntity.ok(reservationRepository.findAll(spec, pageable));
+        return ResponseEntity.ok(reservationService.getReservations(status, minPrice, maxPrice, pageable));
     }
 }
