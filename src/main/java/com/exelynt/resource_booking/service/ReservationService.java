@@ -2,161 +2,212 @@ package com.exelynt.resource_booking.service;
 
 import com.exelynt.resource_booking.dto.ReservationRequest;
 import com.exelynt.resource_booking.dto.ReservationResponse;
-import com.exelynt.resource_booking.entity.*;
+import com.exelynt.resource_booking.entity.Reservation;
+import com.exelynt.resource_booking.entity.ReservationStatus;
+import com.exelynt.resource_booking.entity.Resource;
+import com.exelynt.resource_booking.entity.User;
 import com.exelynt.resource_booking.exception.ResourceNotFoundException;
-import com.exelynt.resource_booking.exception.UnauthorizedAccessException;
 import com.exelynt.resource_booking.repository.ReservationRepository;
 import com.exelynt.resource_booking.repository.ResourceRepository;
 import com.exelynt.resource_booking.repository.UserRepository;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.temporal.ChronoUnit;
 
 @Service
+@Transactional
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final ResourceRepository resourceRepository;
     private final UserRepository userRepository;
 
-    public ReservationService(ReservationRepository reservationRepository,
-                              ResourceRepository resourceRepository,
-                              UserRepository userRepository) {
+    public ReservationService(
+            ReservationRepository reservationRepository,
+            ResourceRepository resourceRepository,
+            UserRepository userRepository) {
         this.reservationRepository = reservationRepository;
         this.resourceRepository = resourceRepository;
         this.userRepository = userRepository;
     }
 
-    @Transactional
     public ReservationResponse createReservation(ReservationRequest request) {
-        if (request.getEndTime().isBefore(request.getStartTime())) {
-            throw new IllegalArgumentException("End time must be after start time");
+
+        String username = SecurityContextHolder.getContext()
+                .getAuthentication().getName();
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "User not found: " + username));
+
+        Resource resource = resourceRepository.findById(
+                        request.getResourceId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Resource not found with id: "
+                                        + request.getResourceId()));
+
+        if (request.getStartTime() == null
+                || request.getEndTime() == null
+                || !request.getEndTime().isAfter(request.getStartTime())) {
+            throw new IllegalArgumentException(
+                    "End time must be after start time");
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        User currentUser = userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found"));
+        long days = ChronoUnit.DAYS.between(
+                request.getStartTime().toLocalDate(),
+                request.getEndTime().toLocalDate());
 
-        Resource resource = resourceRepository.findById(request.getResourceId())
-                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
+        if (days <= 0) {
+            days = 1;
+        }
+
+        BigDecimal price = BigDecimal.valueOf(100)
+                .multiply(BigDecimal.valueOf(days));
 
         Reservation reservation = new Reservation();
-        reservation.setUser(currentUser);
+        reservation.setUser(user);
         reservation.setResource(resource);
         reservation.setStartTime(request.getStartTime());
         reservation.setEndTime(request.getEndTime());
-        reservation.setPrice(request.getPrice());
+        reservation.setPrice(price);
         reservation.setStatus(ReservationStatus.PENDING);
 
-        return mapToResponse(reservationRepository.save(reservation));
+        Reservation saved = reservationRepository.save(reservation);
+
+        return mapToResponse(saved);
     }
 
-    public Page<ReservationResponse> getReservations(ReservationStatus status,
-                                                     BigDecimal minPrice,
-                                                     BigDecimal maxPrice,
-                                                     Pageable pageable) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean isAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+    @Transactional(readOnly = true)
+    public Page<ReservationResponse> getAllReservations(
+            Pageable pageable) {
 
-        Specification<Reservation> spec = Specification.where(ReservationRepository.hasStatus(status))
-                .and(ReservationRepository.hasPriceGte(minPrice))
-                .and(ReservationRepository.hasPriceLte(maxPrice));
+        return reservationRepository.findAll(pageable)
+                .map(this::mapToResponse);
+    }
 
-        if (!isAdmin) {
-            User currentUser = userRepository.findByUsername(auth.getName())
-                    .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found"));
-            spec = spec.and(ReservationRepository.belongsToUser(currentUser.getId()));
+    @Transactional(readOnly = true)
+    public Page<ReservationResponse> getReservations(
+            Long resourceId,
+            Long userId,
+            String status,
+            Pageable pageable) {
+
+        if (resourceId == null && userId == null && status == null) {
+            return getAllReservations(pageable);
         }
 
-        return reservationRepository.findAll(spec, pageable).map(this::mapToResponse);
+        Specification<Reservation> specification =
+                (root, query, criteriaBuilder) ->
+                        criteriaBuilder.conjunction();
+
+        if (resourceId != null) {
+            specification = specification.and(
+                    (root, query, cb) ->
+                            cb.equal(
+                                    root.get("resource").get("id"),
+                                    resourceId));
+        }
+
+        if (userId != null) {
+            specification = specification.and(
+                    ReservationRepository.belongsToUser(userId));
+        }
+
+        if (status != null && !status.isBlank()) {
+            ReservationStatus reservationStatus;
+
+            try {
+                reservationStatus =
+                        ReservationStatus.valueOf(
+                                status.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid reservation status: " + status);
+            }
+
+            specification = specification.and(
+                    ReservationRepository.hasStatus(
+                            reservationStatus));
+        }
+
+        return reservationRepository.findAll(
+                        specification, pageable)
+                .map(this::mapToResponse);
     }
 
+    @Transactional(readOnly = true)
     public ReservationResponse getReservationById(Long id) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
 
-        validateOwnershipOrAdmin(reservation);
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Reservation not found with id: " + id));
+
         return mapToResponse(reservation);
     }
 
-    @Transactional
-    public ReservationResponse updateReservation(Long id, ReservationRequest request) {
-        if (request.getEndTime().isBefore(request.getStartTime())) {
-            throw new IllegalArgumentException("End time must be after start time");
-        }
+    public ReservationResponse updateStatus(Long id, String status) {
 
         Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Reservation not found with id: " + id));
 
-        validateOwnershipOrAdmin(reservation);
-
-        Resource resource = resourceRepository.findById(request.getResourceId())
-                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
-
-        reservation.setResource(resource);
-        reservation.setStartTime(request.getStartTime());
-        reservation.setEndTime(request.getEndTime());
-        reservation.setPrice(request.getPrice());
-
-        return mapToResponse(reservationRepository.save(reservation));
-    }
-
-    @Transactional
-    public ReservationResponse updateStatus(Long id, ReservationStatus status) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
-
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean isAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-
-        // Regular users can only cancel their own reservations; admins can set any status
-        if (!isAdmin) {
-            validateOwnershipOrAdmin(reservation);
-            if (status != ReservationStatus.CANCELLED) {
-                throw new UnauthorizedAccessException("Users can only update reservation status to CANCELLED");
-            }
+        try {
+            reservation.setStatus(
+                    ReservationStatus.valueOf(
+                            status.trim().toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Invalid status: " + status);
         }
 
-        reservation.setStatus(status);
-        return mapToResponse(reservationRepository.save(reservation));
+        Reservation updated = reservationRepository.save(reservation);
+
+        return mapToResponse(updated);
     }
 
-    @Transactional
     public void deleteReservation(Long id) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
 
-        validateOwnershipOrAdmin(reservation);
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Reservation not found with id: " + id));
+
         reservationRepository.delete(reservation);
     }
 
-    private void validateOwnershipOrAdmin(Reservation reservation) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean isAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+    private ReservationResponse mapToResponse(
+            Reservation reservation) {
 
-        if (!isAdmin && !reservation.getUser().getUsername().equals(auth.getName())) {
-            throw new UnauthorizedAccessException("You do not have permission to access or modify this reservation");
+        ReservationResponse response = new ReservationResponse();
+
+        response.setId(reservation.getId());
+
+        if (reservation.getResource() != null) {
+            response.setResourceId(
+                    reservation.getResource().getId());
         }
-    }
 
-    private ReservationResponse mapToResponse(Reservation reservation) {
-        ReservationResponse res = new ReservationResponse();
-        res.setId(reservation.getId());
-        res.setResourceId(reservation.getResource().getId());
-        res.setUserId(reservation.getUser().getId());
-        res.setStartTime(reservation.getStartTime());
-        res.setEndTime(reservation.getEndTime());
-        res.setPrice(reservation.getPrice());
-        res.setStatus(reservation.getStatus());
-        return res;
+        if (reservation.getUser() != null) {
+            response.setUserId(
+                    reservation.getUser().getId());
+        }
+
+        response.setStartTime(reservation.getStartTime());
+        response.setEndTime(reservation.getEndTime());
+        response.setPrice(reservation.getPrice());
+        response.setStatus(reservation.getStatus());
+
+        return response;
     }
 }

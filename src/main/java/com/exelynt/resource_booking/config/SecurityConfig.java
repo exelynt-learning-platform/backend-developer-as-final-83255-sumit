@@ -1,6 +1,7 @@
 package com.exelynt.resource_booking.config;
 
 import com.exelynt.resource_booking.security.AuthTokenFilter;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,19 +26,41 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http) throws Exception {
+
         http
                 .csrf(csrf -> csrf.disable())
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(
+                                SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/resources/**").hasAnyRole("USER", "ADMIN")
-                        .requestMatchers("/resources/**").hasRole("ADMIN")
-                        .requestMatchers("/reservations/**").hasAnyRole("USER", "ADMIN")
+                        .requestMatchers(
+                                "/auth/**",
+                                "/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/h2-console/**"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/resources/**"
+                        ).hasAnyRole("USER", "ADMIN")
+                        .requestMatchers(
+                                "/api/resources/**"
+                        ).hasRole("ADMIN")
+                        .requestMatchers(
+                                "/api/reservations/**"
+                        ).hasAnyRole("USER", "ADMIN")
                         .anyRequest().authenticated()
-                );
+                )
+                .headers(headers ->
+                        headers.frameOptions(frame -> frame.sameOrigin()));
 
-        http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(
+                authTokenFilter,
+                UsernamePasswordAuthenticationFilter.class);
+
         return http.build();
     }
 
@@ -47,7 +70,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 }

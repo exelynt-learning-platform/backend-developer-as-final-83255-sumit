@@ -1,13 +1,28 @@
-# backend-developer-as-final-83255-sumit
-Final Project Assignment - This repository contains the complete final project code and documentation.
-
 # Resource Booking System API
 
-A RESTful Resource Booking System built with Spring Boot, Java, Spring Security, JWT, and JPA.
+A Spring Boot RESTful service for managing resource bookings with JWT authentication and role-based access control (RBAC).
 
-## Setup & Run Instructions
+## Features
+- User Authentication & Authorization using JWT
+- Role-based permissions (User vs Admin)
+- Resource Management with filtering and pagination
+- Reservation booking and status management
+- OpenAPI / Swagger documentation
 
-1. Build the project:
+## Prerequisites
+- Java 17 or Java 21
+- Maven
 
+## Environment Variables
+- `JWT_SECRET`: Secret key for JWT token generation (Minimum 512 bits for HS512)
+- `JWT_EXPIRATION_MS`: Token expiration time in milliseconds (default: 86400000)
+- `SPRING_DATASOURCE_URL`: Database connection URL
+- `SPRING_DATASOURCE_USERNAME`: Database user
+- `SPRING_DATASOURCE_PASSWORD`: Database password
+
+## Getting Started
+
+1. Clone the repository:
    ```bash
-   mvn clean install -DskipTests
+   git clone <repository-url>
+   cd backend-developer-as-final-83255-sumit
